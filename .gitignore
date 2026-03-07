@@ -1,0 +1,5 @@
+.env
+gemini_key.txt
+*.db
+__pycache__/
+*.pyc

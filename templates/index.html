@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Steam Taste Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1b2838;
+      color: #c6d4df;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 24px 20px;
+    }
+
+    h1 { color: #66c0f4; font-size: 24px; margin-bottom: 6px; }
+    h2 { color: #66c0f4; font-size: 18px; margin: 24px 0 12px; border-bottom: 1px solid #4a6e8a; padding-bottom: 8px; }
+    p.desc { color: #8f98a0; margin-bottom: 20px; font-size: 14px; }
+
+    .hidden { display: none !important; }
+
+    /* --- Input section --- */
+    .input-row { display: flex; gap: 10px; margin-bottom: 14px; }
+    input[type="text"] {
+      flex: 1; padding: 10px 14px;
+      background: #2a475e; color: #c6d4df;
+      border: 1px solid #4a6e8a; border-radius: 4px;
+      font-size: 15px;
+    }
+    input[type="text"]::placeholder { color: #6b8599; }
+    input[type="text"]:focus { outline: none; border-color: #66c0f4; }
+
+    input[type="number"] {
+      width: 72px; padding: 4px 6px;
+      background: #2a475e; color: #c6d4df;
+      border: 1px solid #4a6e8a; border-radius: 4px;
+      font-size: 14px; text-align: right;
+    }
+
+    fieldset {
+      border: 1px solid #4a6e8a; border-radius: 6px;
+      padding: 12px 16px; margin-bottom: 16px;
+    }
+    legend { color: #66c0f4; font-size: 13px; padding: 0 8px; }
+    .filter-option {
+      display: flex; align-items: center; gap: 8px;
+      margin: 8px 0; font-size: 14px;
+    }
+    input[type="radio"] { accent-color: #1a9fff; }
+    input[type="checkbox"] { accent-color: #1a9fff; width: 16px; height: 16px; cursor: pointer; }
+
+    /* --- Buttons --- */
+    .btn {
+      padding: 10px 22px; border: none; border-radius: 4px;
+      cursor: pointer; font-size: 14px; font-weight: 600;
+      transition: background 0.15s;
+    }
+    .btn-primary { background: #1a9fff; color: #fff; }
+    .btn-primary:hover { background: #1585d8; }
+    .btn-secondary { background: #4a6e8a; color: #c6d4df; }
+    .btn-secondary:hover { background: #3a5a72; }
+    .btn-sm { padding: 6px 14px; font-size: 13px; }
+    .btn-danger { background: #7a2929; color: #e57373; }
+    .btn-danger:hover { background: #6a1f1f; }
+
+    .action-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+
+    /* --- Progress --- */
+    #progress-section {
+      background: #2a475e; border-radius: 8px;
+      padding: 20px 24px; margin: 20px 0;
+    }
+    #progress-message { margin-bottom: 12px; font-size: 15px; }
+    #progress-bar-wrap {
+      background: #1b2838; border-radius: 4px; height: 18px; overflow: hidden;
+    }
+    #progress-bar-fill {
+      height: 100%; background: #1a9fff; border-radius: 4px;
+      transition: width 0.4s ease; width: 0%;
+    }
+    #progress-detail { margin-top: 8px; font-size: 13px; color: #8f98a0; }
+    #progress-note { margin-top: 8px; font-size: 12px; color: #6b8599; }
+
+    /* --- Error --- */
+    .error-box {
+      background: #2d1a1a; border: 1px solid #c94040;
+      border-radius: 6px; padding: 14px 18px;
+      color: #e57373; margin: 16px 0;
+    }
+
+    /* --- Stats grid --- */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+      gap: 12px; margin: 16px 0;
+    }
+    .stat-card {
+      background: #2a475e; border-radius: 8px;
+      padding: 16px; text-align: center;
+    }
+    .stat-value { font-size: 28px; font-weight: 700; color: #66c0f4; }
+    .stat-label { font-size: 12px; color: #8f98a0; margin-top: 4px; }
+
+    /* --- Charts --- */
+    .chart-wrap {
+      background: #2a475e; border-radius: 8px;
+      padding: 16px; margin-bottom: 16px;
+    }
+
+    /* --- Games table --- */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th {
+      background: #2a475e; padding: 10px 12px;
+      text-align: left; color: #66c0f4; font-weight: 600;
+    }
+    td { padding: 8px 12px; border-bottom: 1px solid #2a475e33; }
+    tbody tr:hover { background: #2a475e55; }
+    a { color: #66c0f4; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .badge {
+      display: inline-block; font-size: 11px;
+      background: #1b2838; border: 1px solid #4a6e8a;
+      border-radius: 3px; padding: 1px 5px; margin: 1px;
+    }
+
+    /* --- Exclusion manager --- */
+    #exclusion-panel {
+      background: #2a475e; border-radius: 8px;
+      padding: 16px; margin: 16px 0;
+    }
+    .exclusion-toolbar {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;
+    }
+    #exclusion-search {
+      flex: 1; min-width: 180px; padding: 7px 10px;
+      background: #1b2838; color: #c6d4df;
+      border: 1px solid #4a6e8a; border-radius: 4px; font-size: 13px;
+    }
+    #exclusion-search:focus { outline: none; border-color: #66c0f4; }
+    .exclusion-list {
+      max-height: 340px; overflow-y: auto;
+      border: 1px solid #4a6e8a44; border-radius: 4px;
+    }
+    .exclusion-list table { font-size: 13px; }
+    .exclusion-list th { position: sticky; top: 0; z-index: 1; font-size: 12px; padding: 8px 10px; }
+    .exclusion-list td { padding: 6px 10px; }
+    .ex-row.is-excluded td { color: #8f98a0; }
+    .ex-row.is-excluded td:nth-child(2) { text-decoration: line-through; }
+    .exclusion-footer {
+      display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap;
+    }
+    .excluded-count { font-size: 13px; color: #8f98a0; }
+    label.toggle-excluded { font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+    /* --- Quiz --- */
+    #quiz-panel {
+      background: #2a475e; border-radius: 8px;
+      padding: 20px 24px; margin: 16px 0;
+    }
+    .quiz-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 16px;
+    }
+    .quiz-header h3 { color: #66c0f4; font-size: 17px; }
+    .quiz-score { font-size: 13px; color: #8f98a0; }
+    .quiz-description {
+      background: #1b2838; border-radius: 6px;
+      padding: 16px 18px; margin-bottom: 16px;
+      font-size: 14px; line-height: 1.7;
+      border-left: 3px solid #4a6e8a;
+      min-height: 80px;
+    }
+    .quiz-input-row { display: flex; gap: 10px; margin-bottom: 14px; }
+    .quiz-input-row input[type="text"] { flex: 1; font-size: 15px; }
+    .quiz-result {
+      border-radius: 6px; padding: 14px 18px;
+      margin-bottom: 14px; font-size: 14px; line-height: 1.6;
+    }
+    .quiz-result.correct {
+      background: #1a3a1a; border: 1px solid #4caf50; color: #81c784;
+    }
+    .quiz-result.incorrect {
+      background: #2d1a1a; border: 1px solid #c94040; color: #e57373;
+    }
+    .quiz-answer-name {
+      font-size: 16px; font-weight: 700; color: #c6d4df; margin-top: 6px;
+    }
+    .quiz-store-link { font-size: 12px; margin-top: 4px; }
+    .quiz-loading { color: #8f98a0; font-size: 14px; padding: 20px 0; text-align: center; }
+    .btn-quiz { background: #57cbde22; border: 1px solid #57cbde; color: #57cbde; }
+    .btn-quiz:hover { background: #57cbde44; }
+  </style>
+</head>
+<body>
+
+  <h1>Steam Taste Analyzer</h1>
+  <p class="desc">Steamのプレイ時間からゲームの傾向を分析します。プロフィールは公開設定にしてください。</p>
+
+  <!-- 入力フォーム -->
+  <div id="input-section">
+    <div class="input-row">
+      <input type="text" id="steam-input"
+        placeholder="SteamID64 (76561198...) / カスタムURL名 / プロフィールURL" />
+      <button class="btn btn-primary" id="analyze-btn">分析する</button>
+    </div>
+
+    <fieldset>
+      <legend>プレイ時間フィルター</legend>
+      <div class="filter-option">
+        <input type="radio" name="filter" id="f-none" value="none">
+        <label for="f-none">フィルターなし（プレイ済みゲーム全て）</label>
+      </div>
+      <div class="filter-option">
+        <input type="radio" name="filter" id="f-hours" value="hours" checked>
+        <label for="f-hours">
+          <input type="number" id="hours-value" value="1" min="0" step="0.5">
+          時間以上プレイしたゲーム
+        </label>
+      </div>
+      <div class="filter-option">
+        <input type="radio" name="filter" id="f-percent" value="percent">
+        <label for="f-percent">
+          全プレイ時間の
+          <input type="number" id="percent-value" value="0.5" min="0.01" max="100" step="0.1">
+          % 以上のゲーム
+        </label>
+      </div>
+      <hr style="border-color:#4a6e8a33; margin: 10px 0;">
+      <div class="filter-option">
+        <input type="checkbox" id="exclude-tools" checked>
+        <label for="exclude-tools">ツール類を除外（Game Development・Utilities ジャンル）</label>
+      </div>
+    </fieldset>
+  </div>
+
+  <!-- 進捗表示 -->
+  <div id="progress-section" class="hidden">
+    <p id="progress-message">処理中...</p>
+    <div id="progress-bar-wrap">
+      <div id="progress-bar-fill"></div>
+    </div>
+    <p id="progress-detail"></p>
+    <p id="progress-note">※ ゲーム数が多い場合は時間がかかります。そのままお待ちください。</p>
+  </div>
+
+  <!-- エラー表示 -->
+  <div id="error-section" class="hidden">
+    <div class="error-box" id="error-message"></div>
+  </div>
+
+  <!-- 結果表示 -->
+  <div id="results-section" class="hidden">
+
+    <div class="action-row">
+      <button class="btn btn-primary btn-sm" id="apply-filter-btn">フィルターを適用</button>
+      <button class="btn btn-secondary btn-sm" id="toggle-exclusion-btn">除外するゲームを選択</button>
+      <button class="btn btn-quiz btn-sm" id="toggle-quiz-btn">クイズモード</button>
+      <button class="btn btn-secondary btn-sm" id="refetch-btn">データを再取得</button>
+      <span id="steam-id-display" style="font-size:12px; color:#6b8599;"></span>
+    </div>
+
+    <div class="stats-grid" id="stats-grid"></div>
+
+    <!-- 除外管理パネル -->
+    <div id="exclusion-panel" class="hidden">
+      <div class="exclusion-toolbar">
+        <input type="text" id="exclusion-search" placeholder="ゲーム名で検索...">
+        <label class="toggle-excluded">
+          <input type="checkbox" id="show-excluded-only"> 除外中のみ表示
+        </label>
+        <button class="btn btn-danger btn-sm" id="clear-all-exclusions-btn">全て解除</button>
+      </div>
+      <div class="exclusion-list">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px">除外</th>
+              <th>ゲーム名</th>
+              <th style="width:90px; text-align:right">時間</th>
+              <th>ジャンル</th>
+            </tr>
+          </thead>
+          <tbody id="exclusion-tbody"></tbody>
+        </table>
+      </div>
+      <div class="exclusion-footer">
+        <span class="excluded-count" id="excluded-count"></span>
+        <button class="btn btn-primary btn-sm" id="exclusion-apply-btn">変更を分析に反映</button>
+      </div>
+    </div>
+
+    <!-- クイズパネル -->
+    <div id="quiz-panel" class="hidden">
+      <div class="quiz-header">
+        <h3>ゲーム名当てクイズ</h3>
+        <span class="quiz-score" id="quiz-score"></span>
+      </div>
+      <div id="quiz-body">
+        <div class="quiz-loading">問題を読み込み中...</div>
+      </div>
+    </div>
+
+    <h2>ジャンル別プレイ時間</h2>
+    <div class="chart-wrap">
+      <canvas id="genre-chart"></canvas>
+    </div>
+
+    <h2>カテゴリ別プレイ時間（ゲーム機能）</h2>
+    <div class="chart-wrap">
+      <canvas id="category-chart"></canvas>
+    </div>
+
+    <h2>プレイ時間上位ゲーム（最大30本）</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>ゲーム名</th>
+          <th>プレイ時間</th>
+          <th>ジャンル</th>
+        </tr>
+      </thead>
+      <tbody id="games-tbody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    let currentSteamId = null;
+    let pollTimer = null;
+    let genreChart = null;
+    let categoryChart = null;
+
+    // 除外管理パネル用のゲームリスト（キャッシュ）
+    let allGames = [];
+
+    Chart.defaults.color = '#c6d4df';
+
+    const $ = id => document.getElementById(id);
+
+    // --- ユーティリティ ---
+
+    function hideAll() {
+      $('progress-section').classList.add('hidden');
+      $('error-section').classList.add('hidden');
+      $('results-section').classList.add('hidden');
+    }
+
+    function showError(msg) {
+      stopPolling();
+      hideAll();
+      $('error-message').textContent = msg;
+      $('error-section').classList.remove('hidden');
+    }
+
+    function getFilter() {
+      const type = document.querySelector('input[name="filter"]:checked').value;
+      const value =
+        type === 'hours'   ? parseFloat($('hours-value').value)   :
+        type === 'percent' ? parseFloat($('percent-value').value) : 0;
+      const exclude_tools = $('exclude-tools').checked;
+      return { filter_type: type, filter_value: value, exclude_tools };
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    async function post(url, body) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.detail || r.statusText);
+      }
+      return r.json();
+    }
+
+    async function get(url) {
+      const r = await fetch(url);
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.detail || r.statusText);
+      }
+      return r.json();
+    }
+
+    // --- ポーリング ---
+
+    function stopPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    function startPolling(steamId) {
+      stopPolling();
+      pollTimer = setInterval(async () => {
+        try {
+          const s = await get(`/api/status/${steamId}`);
+          if (s.status === 'cached' || s.status === 'done') {
+            stopPolling();
+            $('progress-section').classList.add('hidden');
+            await showResults(steamId);
+          } else if (s.status === 'error') {
+            showError(s.message || '取得中にエラーが発生しました');
+          } else if (s.status === 'fetching') {
+            $('progress-message').textContent = s.message || '取得中...';
+            if (s.phase === 'details' && s.total > 0) {
+              const pct = Math.round(s.progress / s.total * 100);
+              $('progress-bar-fill').style.width = pct + '%';
+              $('progress-detail').textContent = `${s.progress} / ${s.total} ゲーム処理済み`;
+            } else {
+              $('progress-bar-fill').style.width = '5%';
+              $('progress-detail').textContent = '';
+            }
+          }
+        } catch (e) {
+          showError(e.message);
+        }
+      }, 2000);
+    }
+
+    // --- 結果表示 ---
+
+    async function showResults(steamId) {
+      const { filter_type, filter_value, exclude_tools } = getFilter();
+      const params = new URLSearchParams({ filter_type, filter_value, exclude_tools });
+      const data = await get(`/api/analyze/${steamId}?${params}`);
+      renderResults(data, steamId);
+      hideAll();
+      $('results-section').classList.remove('hidden');
+    }
+
+    function makeChart(canvasId, labels, values, color, existingChart) {
+      if (existingChart) existingChart.destroy();
+      const canvas = $(canvasId);
+      canvas.height = Math.max(180, labels.length * 28);
+      return new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'プレイ時間 (時間)',
+            data: values,
+            backgroundColor: color + '99',
+            borderColor: color,
+            borderWidth: 1,
+          }],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toLocaleString()} 時間` } },
+          },
+          scales: {
+            x: { ticks: { color: '#c6d4df' }, grid: { color: '#4a6e8a33' } },
+            y: { ticks: { color: '#c6d4df' }, grid: { color: '#4a6e8a33' } },
+          },
+        },
+      });
+    }
+
+    function renderResults(data, steamId) {
+      $('steam-id-display').textContent = `SteamID: ${steamId}`;
+
+      const excludedStr = data.excluded_games > 0
+        ? ` <span style="color:#8f98a0;font-size:11px">(${data.excluded_games}件除外中)</span>` : '';
+
+      $('stats-grid').innerHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${data.total_games.toLocaleString()}</div>
+          <div class="stat-label">総所持ゲーム数${excludedStr}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${data.filtered_games.toLocaleString()}</div>
+          <div class="stat-label">フィルター後のゲーム数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${data.total_playtime_hours.toLocaleString()}</div>
+          <div class="stat-label">除外後の総プレイ時間 (h)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${data.filtered_playtime_hours.toLocaleString()}</div>
+          <div class="stat-label">フィルター後のプレイ時間 (h)</div>
+        </div>
+      `;
+
+      if (data.genres.length > 0) {
+        genreChart = makeChart('genre-chart', data.genres.map(g => g.name), data.genres.map(g => g.hours), '#1a9fff', genreChart);
+      } else {
+        $('genre-chart').parentElement.innerHTML = '<p style="color:#8f98a0;padding:8px">データなし</p>';
+      }
+
+      if (data.categories.length > 0) {
+        categoryChart = makeChart('category-chart', data.categories.map(c => c.name), data.categories.map(c => c.hours), '#57cbde', categoryChart);
+      } else {
+        $('category-chart').parentElement.innerHTML = '<p style="color:#8f98a0;padding:8px">データなし</p>';
+      }
+
+      $('games-tbody').innerHTML = data.top_games.map((g, i) => `
+        <tr>
+          <td style="color:#8f98a0">${i + 1}</td>
+          <td><a href="https://store.steampowered.com/app/${g.app_id}" target="_blank" rel="noopener">${escapeHtml(g.name)}</a></td>
+          <td style="white-space:nowrap">${g.playtime_hours.toLocaleString()} h</td>
+          <td>${g.genres.map(x => `<span class="badge">${escapeHtml(x)}</span>`).join('') || '-'}</td>
+        </tr>
+      `).join('');
+    }
+
+    // --- 除外管理パネル ---
+
+    async function loadExclusionPanel() {
+      try {
+        allGames = await get(`/api/games/${currentSteamId}`);
+        renderExclusionList();
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    function renderExclusionList() {
+      const query = $('exclusion-search').value.trim().toLowerCase();
+      const showExcludedOnly = $('show-excluded-only').checked;
+
+      const filtered = allGames.filter(g => {
+        if (showExcludedOnly && !g.excluded) return false;
+        if (query && !g.name.toLowerCase().includes(query)) return false;
+        return true;
+      });
+
+      const excludedCount = allGames.filter(g => g.excluded).length;
+      $('excluded-count').textContent = `除外中: ${excludedCount} / ${allGames.length} ゲーム`;
+
+      $('exclusion-tbody').innerHTML = filtered.map(g => `
+        <tr class="ex-row ${g.excluded ? 'is-excluded' : ''}" data-app-id="${g.app_id}">
+          <td><input type="checkbox" class="ex-checkbox" data-app-id="${g.app_id}" ${g.excluded ? 'checked' : ''}></td>
+          <td>
+            <a href="https://store.steampowered.com/app/${g.app_id}" target="_blank" rel="noopener">
+              ${escapeHtml(g.name)}
+            </a>
+          </td>
+          <td style="text-align:right; color:#8f98a0">${g.playtime_hours.toLocaleString()} h</td>
+          <td style="color:#8f98a0">${g.genres.slice(0, 2).map(x => escapeHtml(x)).join(', ') || '-'}</td>
+        </tr>
+      `).join('');
+
+      // チェックボックスのイベントを登録
+      document.querySelectorAll('.ex-checkbox').forEach(cb => {
+        cb.addEventListener('change', async (e) => {
+          const appId = parseInt(e.target.dataset.appId);
+          const excluded = e.target.checked;
+          const game = allGames.find(g => g.app_id === appId);
+          if (game) game.excluded = excluded;
+
+          // 行のスタイルを即座に更新
+          const row = e.target.closest('tr');
+          row.classList.toggle('is-excluded', excluded);
+
+          // サーバーに保存
+          try {
+            await post('/api/exclude', { steam_id: currentSteamId, app_id: appId, excluded });
+          } catch (err) {
+            // 失敗したら元に戻す
+            game.excluded = !excluded;
+            e.target.checked = !excluded;
+            row.classList.toggle('is-excluded', !excluded);
+          }
+
+          // カウント更新
+          const count = allGames.filter(g => g.excluded).length;
+          $('excluded-count').textContent = `除外中: ${count} / ${allGames.length} ゲーム`;
+        });
+      });
+    }
+
+    $('toggle-exclusion-btn').addEventListener('click', async () => {
+      const panel = $('exclusion-panel');
+      if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        $('toggle-exclusion-btn').textContent = '除外管理を閉じる';
+        if (allGames.length === 0) await loadExclusionPanel();
+      } else {
+        panel.classList.add('hidden');
+        $('toggle-exclusion-btn').textContent = '除外するゲームを選択';
+      }
+    });
+
+    $('exclusion-search').addEventListener('input', renderExclusionList);
+    $('show-excluded-only').addEventListener('change', renderExclusionList);
+
+    $('clear-all-exclusions-btn').addEventListener('click', async () => {
+      const excluded = allGames.filter(g => g.excluded);
+      if (excluded.length === 0) return;
+      if (!confirm(`除外中の ${excluded.length} 件を全て解除しますか？`)) return;
+
+      await Promise.all(excluded.map(g =>
+        post('/api/exclude', { steam_id: currentSteamId, app_id: g.app_id, excluded: false })
+      ));
+      allGames.forEach(g => g.excluded = false);
+      renderExclusionList();
+    });
+
+    $('exclusion-apply-btn').addEventListener('click', async () => {
+      try {
+        await showResults(currentSteamId);
+      } catch (e) {
+        showError(e.message);
+      }
+    });
+
+    // --- メインのイベントハンドラ ---
+
+    $('analyze-btn').addEventListener('click', async () => {
+      const input = $('steam-input').value.trim();
+      if (!input) return;
+
+      stopPolling();
+      allGames = [];  // 除外パネルのキャッシュをクリア
+      $('exclusion-panel').classList.add('hidden');
+      $('toggle-exclusion-btn').textContent = '除外するゲームを選択';
+
+      hideAll();
+      $('progress-section').classList.remove('hidden');
+      $('progress-message').textContent = 'Steam IDを確認中...';
+      $('progress-bar-fill').style.width = '0%';
+      $('progress-detail').textContent = '';
+
+      try {
+        const resolved = await post('/api/resolve', { input });
+        currentSteamId = resolved.steam_id;
+
+        $('progress-message').textContent = 'データを確認中...';
+        const result = await post('/api/fetch', { steam_id: currentSteamId });
+
+        if (result.status === 'cached') {
+          $('progress-section').classList.add('hidden');
+          await showResults(currentSteamId);
+        } else {
+          startPolling(currentSteamId);
+        }
+      } catch (e) {
+        showError(e.message);
+      }
+    });
+
+    $('apply-filter-btn').addEventListener('click', async () => {
+      if (!currentSteamId) return;
+      try {
+        await showResults(currentSteamId);
+      } catch (e) {
+        showError(e.message);
+      }
+    });
+
+    $('refetch-btn').addEventListener('click', async () => {
+      if (!currentSteamId) return;
+      if (!confirm('データを再取得しますか？ゲーム数が多い場合は時間がかかります。')) return;
+
+      stopPolling();
+      allGames = [];
+      $('exclusion-panel').classList.add('hidden');
+      $('toggle-exclusion-btn').textContent = '除外するゲームを選択';
+
+      hideAll();
+      $('progress-section').classList.remove('hidden');
+      $('progress-message').textContent = '再取得を開始しています...';
+      $('progress-bar-fill').style.width = '0%';
+
+      try {
+        const result = await post('/api/fetch', { steam_id: currentSteamId, force: true });
+        if (result.status === 'already_fetching') {
+          alert('現在取得中です。しばらくお待ちください。');
+          startPolling(currentSteamId);
+          return;
+        }
+        startPolling(currentSteamId);
+      } catch (e) {
+        showError(e.message);
+      }
+    });
+
+    $('hours-value').addEventListener('focus', () => { $('f-hours').checked = true; });
+    $('percent-value').addEventListener('focus', () => { $('f-percent').checked = true; });
+    $('steam-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('analyze-btn').click(); });
+
+    // --- クイズモード ---
+
+    let quizCorrectName = null;
+    let quizAppId = null;
+    let quizCorrect = 0;
+    let quizTotal = 0;
+    let quizAnswered = false;
+
+    function updateQuizScore() {
+      $('quiz-score').textContent = quizTotal > 0
+        ? `正解: ${quizCorrect} / ${quizTotal}`
+        : '';
+    }
+
+    function renderQuizQuestion(description) {
+      quizAnswered = false;
+      $('quiz-body').innerHTML = `
+        <p style="font-size:12px;color:#8f98a0;margin-bottom:8px">このゲームのストア説明文はどれ？</p>
+        <div class="quiz-description">${escapeHtml(description)}</div>
+        <div class="quiz-input-row">
+          <input type="text" id="quiz-answer" placeholder="ゲーム名を入力...">
+          <button class="btn btn-primary btn-sm" id="quiz-submit-btn">答える</button>
+          <button class="btn btn-danger btn-sm" id="quiz-giveup-btn">ギブアップ</button>
+        </div>
+        <div id="quiz-result-area"></div>
+        <div style="margin-top:8px" id="quiz-next-wrap" class="hidden">
+          <button class="btn btn-secondary btn-sm" id="quiz-next-btn">次の問題</button>
+        </div>
+      `;
+      $('quiz-submit-btn').addEventListener('click', submitQuizAnswer);
+      $('quiz-answer').addEventListener('keydown', e => { if (e.key === 'Enter') submitQuizAnswer(); });
+      $('quiz-giveup-btn').addEventListener('click', giveUpQuiz);
+      $('quiz-next-btn').addEventListener('click', loadQuizQuestion);
+      $('quiz-answer').focus();
+    }
+
+    async function loadQuizQuestion() {
+      $('quiz-body').innerHTML = '<div class="quiz-loading">問題を読み込み中...</div>';
+      try {
+        const { exclude_tools } = getFilter();
+        const data = await get(`/api/quiz/${currentSteamId}?exclude_tools=${exclude_tools}`);
+        quizCorrectName = data.correct_name;
+        quizAppId = data.app_id;
+        renderQuizQuestion(data.description);
+      } catch (e) {
+        $('quiz-body').innerHTML = `<div class="error-box">${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    function showQuizResult(correct, reason) {
+      quizTotal++;
+      if (correct) quizCorrect++;
+      updateQuizScore();
+      $('quiz-submit-btn').disabled = true;
+      $('quiz-giveup-btn').disabled = true;
+      $('quiz-next-wrap').classList.remove('hidden');
+      const storeLink = `https://store.steampowered.com/app/${quizAppId}`;
+      $('quiz-result-area').innerHTML = `
+        <div class="quiz-result ${correct ? 'correct' : 'incorrect'}">
+          <div>${correct ? '✓ 正解！' : '✗ 不正解'}</div>
+          <div class="quiz-answer-name">正解: <a href="${storeLink}" target="_blank" rel="noopener">${escapeHtml(quizCorrectName)}</a></div>
+          ${reason ? `<div style="margin-top:6px;font-size:12px;color:#8f98a0">${escapeHtml(reason)}</div>` : ''}
+        </div>
+      `;
+    }
+
+    function giveUpQuiz() {
+      if (quizAnswered) return;
+      quizAnswered = true;
+      showQuizResult(false, 'ギブアップ');
+    }
+
+    async function submitQuizAnswer() {
+      if (quizAnswered) return;
+      const userAnswer = $('quiz-answer').value.trim();
+      if (!userAnswer) return;
+
+      quizAnswered = true;
+      $('quiz-submit-btn').disabled = true;
+      $('quiz-result-area').innerHTML = '<div class="quiz-loading">判定中...</div>';
+
+      try {
+        const result = await post('/api/quiz/judge', {
+          correct_name: quizCorrectName,
+          user_answer: userAnswer,
+        });
+
+        showQuizResult(result.correct, result.reason);
+      } catch (e) {
+        $('quiz-result-area').innerHTML = `<div class="error-box">${escapeHtml(e.message)}</div>`;
+        $('quiz-submit-btn').disabled = false;
+        quizAnswered = false;
+      }
+    }
+
+    $('toggle-quiz-btn').addEventListener('click', async () => {
+      const panel = $('quiz-panel');
+      if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        $('toggle-quiz-btn').textContent = 'クイズを閉じる';
+        quizCorrect = 0;
+        quizTotal = 0;
+        updateQuizScore();
+        await loadQuizQuestion();
+      } else {
+        panel.classList.add('hidden');
+        $('toggle-quiz-btn').textContent = 'クイズモード';
+      }
+    });
+  </script>
+</body>
+</html>
