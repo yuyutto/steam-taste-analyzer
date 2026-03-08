@@ -27,6 +27,8 @@ STEAM_API_KEY = os.getenv("STEAM_API_KEY", "")
 DB_PATH = os.getenv("DB_PATH", "steam_cache.db")
 APPDETAILS_DELAY = 1.0  # Steam Store API へのリクエスト間隔 (秒)
 GAME_CACHE_DAYS = 30    # ゲーム詳細キャッシュの有効期限
+GEMINI_DAILY_LIMIT_GLOBAL = int(os.getenv("GEMINI_DAILY_LIMIT_GLOBAL", "200"))
+GEMINI_DAILY_LIMIT_PER_USER = int(os.getenv("GEMINI_DAILY_LIMIT_PER_USER", "50"))
 
 # 環境変数を優先し、なければ gemini_key.txt を読む（ローカル開発用）
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -77,6 +79,14 @@ def init_db():
             steam_id TEXT,
             app_id   INTEGER,
             PRIMARY KEY (steam_id, app_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gemini_usage (
+            date     TEXT,
+            steam_id TEXT,
+            count    INTEGER DEFAULT 0,
+            PRIMARY KEY (date, steam_id)
         )
     """)
     conn.commit()
@@ -154,6 +164,57 @@ def db_get_exclusions(steam_id: str) -> set:
     ).fetchall()
     conn.close()
     return {r[0] for r in rows}
+
+
+def db_check_and_increment_usage(steam_id: str) -> dict:
+    """使用量チェックして上限未満なら +1 してOKを返す。超過時は理由を返す。"""
+    today = time.strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+
+    # グローバル合計
+    row = conn.execute(
+        "SELECT SUM(count) FROM gemini_usage WHERE date = ?", (today,)
+    ).fetchone()
+    global_count = row[0] or 0
+    if global_count >= GEMINI_DAILY_LIMIT_GLOBAL:
+        conn.close()
+        return {"ok": False, "reason": f"本日のサーバー全体の利用上限（{GEMINI_DAILY_LIMIT_GLOBAL}回）に達しました。また明日お試しください。", "global_remaining": 0, "user_remaining": 0}
+
+    # ユーザー分
+    row = conn.execute(
+        "SELECT count FROM gemini_usage WHERE date = ? AND steam_id = ?", (today, steam_id)
+    ).fetchone()
+    user_count = row[0] if row else 0
+    if user_count >= GEMINI_DAILY_LIMIT_PER_USER:
+        conn.close()
+        return {"ok": False, "reason": f"本日のあなたの利用上限（{GEMINI_DAILY_LIMIT_PER_USER}回）に達しました。また明日お試しください。", "global_remaining": GEMINI_DAILY_LIMIT_GLOBAL - global_count, "user_remaining": 0}
+
+    # インクリメント
+    conn.execute(
+        "INSERT INTO gemini_usage (date, steam_id, count) VALUES (?, ?, 1) ON CONFLICT(date, steam_id) DO UPDATE SET count = count + 1",
+        (today, steam_id)
+    )
+    conn.commit()
+    conn.close()
+    return {
+        "ok": True,
+        "global_remaining": GEMINI_DAILY_LIMIT_GLOBAL - global_count - 1,
+        "user_remaining": GEMINI_DAILY_LIMIT_PER_USER - user_count - 1,
+    }
+
+
+def db_get_usage(steam_id: str) -> dict:
+    today = time.strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    global_row = conn.execute("SELECT SUM(count) FROM gemini_usage WHERE date = ?", (today,)).fetchone()
+    user_row = conn.execute("SELECT count FROM gemini_usage WHERE date = ? AND steam_id = ?", (today, steam_id)).fetchone()
+    conn.close()
+    global_count = global_row[0] or 0
+    user_count = user_row[0] if user_row else 0
+    return {
+        "global_remaining": max(0, GEMINI_DAILY_LIMIT_GLOBAL - global_count),
+        "user_remaining": max(0, GEMINI_DAILY_LIMIT_PER_USER - user_count),
+    }
 
 
 def db_set_exclusion(steam_id: str, app_id: int, excluded: bool):
@@ -282,21 +343,23 @@ class ExcludeRequest(BaseModel):
 class QuizJudgeRequest(BaseModel):
     correct_name: str
     user_answer: str
+    steam_id: str = ""
+    user_api_key: str = ""  # ユーザー独自のGemini APIキー（任意）
 
 
 # --- Gemini ---
 
 # (api_version, model_name) の優先順で試す
 GEMINI_CANDIDATES = [
+    ("v1beta", "gemma-3-4b-it"),
     ("v1beta", "gemini-2.5-flash"),
-    ("v1beta", "gemini-2.5-flash-lite"),
-    ("v1beta", "gemini-2.0-flash"),
 ]
 
 
-async def _gemini_text(prompt: str) -> str:
+async def _gemini_text(prompt: str, api_key: str = "") -> str:
     """Gemini にテキストプロンプトを送り、応答テキストを返す。失敗時は例外を送出。"""
-    if not GEMINI_API_KEY:
+    key = api_key or GEMINI_API_KEY
+    if not key:
         raise HTTPException(500, "Gemini APIキーが設定されていません (gemini_key.txt を確認してください)")
 
     last_error = "不明なエラー"
@@ -305,7 +368,7 @@ async def _gemini_text(prompt: str) -> str:
             try:
                 r = await client.post(
                     f"https://generativelanguage.googleapis.com/{api_ver}/models/{model}:generateContent",
-                    params={"key": GEMINI_API_KEY},
+                    params={"key": key},
                     json={"contents": [{"parts": [{"text": prompt}]}]},
                 )
                 if r.is_success:
@@ -343,8 +406,8 @@ async def redact_name_in_description(description: str, game_name: str) -> str:
         return description  # 失敗時は原文のまま（クイズは続行可能）
 
 
-async def judge_with_gemini(correct_name: str, user_answer: str) -> dict:
-    if not GEMINI_API_KEY:
+async def judge_with_gemini(correct_name: str, user_answer: str, api_key: str = "") -> dict:
+    if not (api_key or GEMINI_API_KEY):
         raise HTTPException(500, "Gemini APIキーが設定されていません (gemini_key.txt を確認してください)")
 
     prompt = (
@@ -359,7 +422,7 @@ async def judge_with_gemini(correct_name: str, user_answer: str) -> dict:
         'JSON形式のみで回答してください: {"correct": true または false, "reason": "理由を日本語で簡潔に"}'
     )
 
-    text = await _gemini_text(prompt)  # 失敗時は HTTPException を送出
+    text = await _gemini_text(prompt, api_key=api_key)  # 失敗時は HTTPException を送出
 
     m = re.search(r'\{.*\}', text, re.DOTALL)
     if not m:
@@ -492,8 +555,12 @@ async def api_quiz(steam_id: str, exclude_tools: bool = False):
 
             if details.get("description"):
                 correct_name = details["name"] or g["name"]
-                # 説明文中のゲーム名を [ゲーム名] に置き換え
-                description = await redact_name_in_description(details["description"], correct_name)
+                # 説明文中のゲーム名を [ゲーム名] に置き換え（使用量をカウント）
+                usage = db_check_and_increment_usage(steam_id)
+                if usage["ok"]:
+                    description = await redact_name_in_description(details["description"], correct_name)
+                else:
+                    description = details["description"]  # 上限超過時はリダクションをスキップ
                 return {
                     "app_id": app_id,
                     "description": description,
@@ -503,9 +570,24 @@ async def api_quiz(steam_id: str, exclude_tools: bool = False):
     raise HTTPException(404, "説明文があるゲームが見つかりませんでした。データを再取得してみてください。")
 
 
+@app.get("/api/quiz/usage/{steam_id}")
+async def api_quiz_usage(steam_id: str):
+    return db_get_usage(steam_id)
+
+
 @app.post("/api/quiz/judge")
 async def api_quiz_judge(body: QuizJudgeRequest):
-    result = await judge_with_gemini(body.correct_name, body.user_answer)
+    # ユーザー独自キーがあれば上限チェックをスキップ
+    if not body.user_api_key:
+        usage = db_check_and_increment_usage(body.steam_id)
+        if not usage["ok"]:
+            raise HTTPException(429, usage["reason"])
+        extra = {"global_remaining": usage["global_remaining"], "user_remaining": usage["user_remaining"]}
+    else:
+        extra = {"global_remaining": None, "user_remaining": None}
+
+    result = await judge_with_gemini(body.correct_name, body.user_answer, api_key=body.user_api_key)
+    result.update(extra)
     return result
 
 

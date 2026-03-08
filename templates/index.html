@@ -298,6 +298,14 @@
         <h3>ゲーム名当てクイズ</h3>
         <span class="quiz-score" id="quiz-score"></span>
       </div>
+      <div id="quiz-usage-bar" style="font-size:12px;color:#8f98a0;margin-bottom:12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <span id="quiz-usage-text"></span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <span style="white-space:nowrap">独自APIキー:</span>
+          <input type="text" id="quiz-user-api-key" placeholder="AIzaSy..." style="width:220px;font-size:12px;padding:4px 8px">
+          <span style="color:#6b8599;font-size:11px">入力すると上限なしで使用</span>
+        </label>
+      </div>
       <div id="quiz-body">
         <div class="quiz-loading">問題を読み込み中...</div>
       </div>
@@ -777,15 +785,31 @@
         const result = await post('/api/quiz/judge', {
           correct_name: quizCorrectName,
           user_answer: userAnswer,
+          steam_id: currentSteamId,
+          user_api_key: $('quiz-user-api-key').value.trim(),
         });
 
         showQuizResult(result.correct, result.reason);
+        if (result.global_remaining !== null) {
+          updateUsageText({ global_remaining: result.global_remaining, user_remaining: result.user_remaining });
+        }
       } catch (e) {
         $('quiz-result-area').innerHTML = `<div class="error-box">${escapeHtml(e.message)}</div>`;
         $('quiz-submit-btn').disabled = false;
         quizAnswered = false;
       }
     }
+
+    function updateUsageText(data) {
+      if (!data || $('quiz-user-api-key').value.trim()) {
+        $('quiz-usage-text').textContent = '独自キー使用中（上限なし）';
+        return;
+      }
+      $('quiz-usage-text').textContent =
+        `残り回数: 本日 ${data.user_remaining}回 / サーバー全体 ${data.global_remaining}回`;
+    }
+
+    $('quiz-user-api-key').addEventListener('input', () => updateUsageText(null));
 
     $('toggle-quiz-btn').addEventListener('click', async () => {
       const panel = $('quiz-panel');
@@ -795,6 +819,10 @@
         quizCorrect = 0;
         quizTotal = 0;
         updateQuizScore();
+        try {
+          const usage = await get(`/api/quiz/usage/${currentSteamId}`);
+          updateUsageText(usage);
+        } catch (_) {}
         await loadQuizQuestion();
       } else {
         panel.classList.add('hidden');
